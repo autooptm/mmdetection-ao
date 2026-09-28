@@ -278,6 +278,11 @@ class AnchorGenerator:
             torch.Tensor: Anchors in the overall feature maps.
         """
 
+        cache = self.__dict__.setdefault('_ao_prior_state', {})
+        prior_key = (tuple(featmap_size), level_idx, dtype, str(device))
+        if prior_key in cache:
+            return cache[prior_key]
+
         base_anchors = self.base_anchors[level_idx].to(device).to(dtype)
         feat_h, feat_w = featmap_size
         stride_w, stride_h = self.strides[level_idx]
@@ -298,6 +303,7 @@ class AnchorGenerator:
         # then (0, 1), (0, 2), ...
         if self.use_box_type:
             all_anchors = HorizontalBoxes(all_anchors)
+        cache[prior_key] = all_anchors
         return all_anchors
 
     def sparse_priors(self,
@@ -462,6 +468,12 @@ class AnchorGenerator:
             torch.Tensor: The valid flags of each anchor in a single level \
                 feature map.
         """
+        flag_store = self.__dict__.setdefault('_ao_valid_state', {})
+        flag_key = (tuple(featmap_size), tuple(valid_size), num_base_anchors,
+                    str(device))
+        if flag_key in flag_store:
+            return flag_store[flag_key]
+
         feat_h, feat_w = featmap_size
         valid_h, valid_w = valid_size
         assert valid_h <= feat_h and valid_w <= feat_w
@@ -473,6 +485,7 @@ class AnchorGenerator:
         valid = valid_xx & valid_yy
         valid = valid[:, None].expand(valid.size(0),
                                       num_base_anchors).contiguous().view(-1)
+        flag_store[flag_key] = valid
         return valid
 
     def __repr__(self) -> str:

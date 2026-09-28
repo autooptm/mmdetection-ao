@@ -1,4 +1,5 @@
 # Copyright (c) OpenMMLab. All rights reserved.
+import os
 from typing import Union
 
 import torch
@@ -61,10 +62,11 @@ class RandomSampler(BaseSampler):
             else:
                 device = 'cpu'
             gallery = torch.tensor(gallery, dtype=torch.long, device=device)
-        # This is a temporary fix. We can revert the following code
-        # when PyTorch fixes the abnormal return of torch.randperm.
-        # See: https://github.com/open-mmlab/mmdetection/pull/5014
-        perm = torch.randperm(gallery.numel())[:num].to(device=gallery.device)
+        if os.environ.get('AO_MMDET_OPT_3', '1') != '0':
+            perm = torch.randperm(gallery.numel(), device=gallery.device)[:num]
+        else:
+            perm = torch.randperm(
+                gallery.numel())[:num].to(device=gallery.device)
         rand_inds = gallery[perm]
         if not is_tensor:
             rand_inds = rand_inds.cpu().numpy()

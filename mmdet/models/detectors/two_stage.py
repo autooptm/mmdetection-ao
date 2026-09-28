@@ -1,5 +1,6 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import copy
+import os
 import warnings
 from typing import List, Tuple, Union
 
@@ -107,6 +108,14 @@ class TwoStageDetector(BaseDetector):
             tuple[Tensor]: Multi-level features that may have
             different resolutions.
         """
+        if os.environ.get('AO_MMDET_OPT_1',
+                          '1') != '0' and batch_inputs.is_cuda:
+            with torch.autocast('cuda', dtype=torch.bfloat16):
+                x = self.backbone(batch_inputs)
+                if self.with_neck:
+                    x = self.neck(x)
+            return tuple(t.float() for t in x)
+
         x = self.backbone(batch_inputs)
         if self.with_neck:
             x = self.neck(x)

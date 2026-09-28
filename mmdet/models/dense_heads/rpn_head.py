@@ -1,5 +1,6 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import copy
+import os
 from typing import List, Optional, Tuple
 
 import torch
@@ -90,6 +91,14 @@ class RPNHead(AnchorHead):
                 bbox_pred (Tensor): Box energies / deltas for a single scale \
                     level, the channels number is num_base_priors * 4.
         """
+        if os.environ.get('AO_MMDET_OPT_2', '1') != '0' and x.is_cuda:
+            with torch.autocast('cuda', dtype=torch.bfloat16):
+                y = self.rpn_conv(x)
+                y = F.relu(y)
+                rpn_cls_score = self.rpn_cls(y)
+                rpn_bbox_pred = self.rpn_reg(y)
+            return rpn_cls_score.float(), rpn_bbox_pred.float()
+
         x = self.rpn_conv(x)
         x = F.relu(x)
         rpn_cls_score = self.rpn_cls(x)

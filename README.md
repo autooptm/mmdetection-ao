@@ -1,4 +1,62 @@
 <div align="center">
+  <a href="https://autooptm.com"><img src=".autooptm/logo.png" width="96" alt="AutoOptm"></a>
+
+  <h1>mmdetection · optimized by <a href="https://autooptm.com">AutoOptm</a></h1>
+
+  <p><b>1.22x faster end to end</b> on the command below, output verified against the stock program.</p>
+
+  <p>
+    <a href="https://autooptm.com"><img alt="speedup" src="https://img.shields.io/badge/end--to--end-1.22x-2ea44f"></a>
+    <a href="https://github.com/open-mmlab/mmdetection/commit/cfd5d3a985b0249de009b67d04f37263e11cdf3d"><img alt="base" src="https://img.shields.io/badge/upstream-cfd5d3a985b0-blue"></a>
+    <img alt="card" src="https://img.shields.io/badge/measured%20on-RTX%204090-lightgrey">
+  </p>
+</div>
+
+> This is a fork of [open-mmlab/mmdetection](https://github.com/open-mmlab/mmdetection) at commit
+> [`cfd5d3a985b0`](https://github.com/open-mmlab/mmdetection/commit/cfd5d3a985b0249de009b67d04f37263e11cdf3d) with the AutoOptm patch applied on top.
+> The optimisation was found, measured and verified automatically by [AutoOptm](https://autooptm.com);
+> the patch is also kept verbatim at [`.autooptm/autooptm.patch`](.autooptm/autooptm.patch).
+
+## The result
+
+| | |
+|---|---|
+| **Command** | `python tools/train.py configs/faster_rcnn/faster-rcnn_r50_fpn_1x_coco.py` |
+| **Entry point** | `tools/train.py` |
+| **Unit measured** | one training iteration of Faster R-CNN R50-FPN on COCO at the config's batch size (end to end) |
+| **Before (stock)** | 0.1161 s per unit |
+| **After (this tree, all switches default ON)** | 0.08422 s per unit |
+| **Speedup** | **1.22x** end to end, noise floor of the host 1.38% |
+| **Output** | verified against the frozen stock reference on the pinned inputs and on a held-out set the optimiser never saw |
+
+### What changed
+
+| File | Where | Gain (alone) |
+|---|---|---|
+| `mmdet/models/detectors/two_stage.py` | TwoStageDetector.extract_feat | 1.17x |
+| `mmdet/models/dense_heads/rpn_head.py` | RPNHead.forward_single | 1.06x |
+| `mmdet/models/task_modules/samplers/random_sampler.py` | RandomSampler.random_choice | 1.1x |
+| `mmdet/models/task_modules/prior_generators/anchor_generator.py` | AnchorGenerator.single_level_grid_priors | 1.03x |
+
+## Reproduce
+
+```bash
+git clone https://github.com/autooptm/mmdetection-ao.git
+cd mmdetection-ao
+# set up exactly as upstream documents, then:
+python tools/train.py configs/faster_rcnn/faster-rcnn_r50_fpn_1x_coco.py
+```
+
+The diff against upstream is one commit: `git log -1 -p` shows it, and
+`git diff cfd5d3a985b0` is the same patch as `.autooptm/autooptm.patch`.
+
+---
+
+<div align="center"><sub>Optimized by <a href="https://autooptm.com">AutoOptm</a> — point it at a repository, get back a verified speedup and the patch.</sub></div>
+
+---
+
+<div align="center">
   <img src="resources/mmdet-logo.png" width="600"/>
   <div>&nbsp;</div>
   <div align="center">

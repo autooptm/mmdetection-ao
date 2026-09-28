@@ -1,0 +1,123 @@
+diff --git a/mmdet/models/dense_heads/rpn_head.py b/mmdet/models/dense_heads/rpn_head.py
+index 6b544009d2ffc4c3c9065707a0a8a72c577eb432..0654693eab54806c245e29bf51ec70e3558f3c56 100644
+--- a/mmdet/models/dense_heads/rpn_head.py
++++ b/mmdet/models/dense_heads/rpn_head.py
+@@ -1,5 +1,6 @@
+ # Copyright (c) OpenMMLab. All rights reserved.
+ import copy
++import os
+ from typing import List, Optional, Tuple
+ 
+ import torch
+@@ -90,6 +91,14 @@ class RPNHead(AnchorHead):
+                 bbox_pred (Tensor): Box energies / deltas for a single scale \
+                     level, the channels number is num_base_priors * 4.
+         """
++        if os.environ.get('AO_MMDET_OPT_2', '1') != '0' and x.is_cuda:
++            with torch.autocast('cuda', dtype=torch.bfloat16):
++                y = self.rpn_conv(x)
++                y = F.relu(y)
++                rpn_cls_score = self.rpn_cls(y)
++                rpn_bbox_pred = self.rpn_reg(y)
++            return rpn_cls_score.float(), rpn_bbox_pred.float()
++
+         x = self.rpn_conv(x)
+         x = F.relu(x)
+         rpn_cls_score = self.rpn_cls(x)
+diff --git a/mmdet/models/detectors/two_stage.py b/mmdet/models/detectors/two_stage.py
+index 4e83df9eb5ce837636e10c4592fe26a7edce1657..3efdcc691690cb778700d0b3fd30d2363148d540 100644
+--- a/mmdet/models/detectors/two_stage.py
++++ b/mmdet/models/detectors/two_stage.py
+@@ -1,5 +1,6 @@
+ # Copyright (c) OpenMMLab. All rights reserved.
+ import copy
++import os
+ import warnings
+ from typing import List, Tuple, Union
+ 
+@@ -107,6 +108,14 @@ class TwoStageDetector(BaseDetector):
+             tuple[Tensor]: Multi-level features that may have
+             different resolutions.
+         """
++        if os.environ.get('AO_MMDET_OPT_1',
++                          '1') != '0' and batch_inputs.is_cuda:
++            with torch.autocast('cuda', dtype=torch.bfloat16):
++                x = self.backbone(batch_inputs)
++                if self.with_neck:
++                    x = self.neck(x)
++            return tuple(t.float() for t in x)
++
+         x = self.backbone(batch_inputs)
+         if self.with_neck:
+             x = self.neck(x)
+diff --git a/mmdet/models/task_modules/prior_generators/anchor_generator.py b/mmdet/models/task_modules/prior_generators/anchor_generator.py
+index 2757697ce2283ec8b46ba89325e63fad0be4a7e8..42669b1b3a77354b07a5f9d2390dfaadf4b752bb 100644
+--- a/mmdet/models/task_modules/prior_generators/anchor_generator.py
++++ b/mmdet/models/task_modules/prior_generators/anchor_generator.py
+@@ -278,6 +278,11 @@ class AnchorGenerator:
+             torch.Tensor: Anchors in the overall feature maps.
+         """
+ 
++        cache = self.__dict__.setdefault('_ao_prior_state', {})
++        prior_key = (tuple(featmap_size), level_idx, dtype, str(device))
++        if prior_key in cache:
++            return cache[prior_key]
++
+         base_anchors = self.base_anchors[level_idx].to(device).to(dtype)
+         feat_h, feat_w = featmap_size
+         stride_w, stride_h = self.strides[level_idx]
+@@ -298,6 +303,7 @@ class AnchorGenerator:
+         # then (0, 1), (0, 2), ...
+         if self.use_box_type:
+             all_anchors = HorizontalBoxes(all_anchors)
++        cache[prior_key] = all_anchors
+         return all_anchors
+ 
+     def sparse_priors(self,
+@@ -462,6 +468,12 @@ class AnchorGenerator:
+             torch.Tensor: The valid flags of each anchor in a single level \
+                 feature map.
+         """
++        flag_store = self.__dict__.setdefault('_ao_valid_state', {})
++        flag_key = (tuple(featmap_size), tuple(valid_size), num_base_anchors,
++                    str(device))
++        if flag_key in flag_store:
++            return flag_store[flag_key]
++
+         feat_h, feat_w = featmap_size
+         valid_h, valid_w = valid_size
+         assert valid_h <= feat_h and valid_w <= feat_w
+@@ -473,6 +485,7 @@ class AnchorGenerator:
+         valid = valid_xx & valid_yy
+         valid = valid[:, None].expand(valid.size(0),
+                                       num_base_anchors).contiguous().view(-1)
++        flag_store[flag_key] = valid
+         return valid
+ 
+     def __repr__(self) -> str:
+diff --git a/mmdet/models/task_modules/samplers/random_sampler.py b/mmdet/models/task_modules/samplers/random_sampler.py
+index fa03665fc36cc6a0084431324b16727b2dc8993e..b0aa748aa6a9685a0adb9c99d4bc9b698124b7ba 100644
+--- a/mmdet/models/task_modules/samplers/random_sampler.py
++++ b/mmdet/models/task_modules/samplers/random_sampler.py
+@@ -1,4 +1,5 @@
+ # Copyright (c) OpenMMLab. All rights reserved.
++import os
+ from typing import Union
+ 
+ import torch
+@@ -61,10 +62,11 @@ class RandomSampler(BaseSampler):
+             else:
+                 device = 'cpu'
+             gallery = torch.tensor(gallery, dtype=torch.long, device=device)
+-        # This is a temporary fix. We can revert the following code
+-        # when PyTorch fixes the abnormal return of torch.randperm.
+-        # See: https://github.com/open-mmlab/mmdetection/pull/5014
+-        perm = torch.randperm(gallery.numel())[:num].to(device=gallery.device)
++        if os.environ.get('AO_MMDET_OPT_3', '1') != '0':
++            perm = torch.randperm(gallery.numel(), device=gallery.device)[:num]
++        else:
++            perm = torch.randperm(
++                gallery.numel())[:num].to(device=gallery.device)
+         rand_inds = gallery[perm]
+         if not is_tensor:
+             rand_inds = rand_inds.cpu().numpy()
